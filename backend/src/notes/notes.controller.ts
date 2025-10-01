@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Post,
+  Put,
   Body,
   Patch,
   Param,
@@ -98,6 +99,29 @@ export class NotesController {
     return this.notesService.create(createNoteDto, req.user.userId);
   }
 
+  @Get('tags')
+  @ReadThrottle()
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Get all unique tags',
+    description: 'Retrieves all unique tags used by the authenticated user'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Tags retrieved successfully',
+    schema: {
+      type: 'array',
+      items: { type: 'string' },
+      example: ['work', 'personal', 'urgent', 'meeting']
+    }
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing JWT token'
+  })
+  getTags(@Request() req) {
+    return this.notesService.getAllTags(req.user.userId);
+  }
+
   @Get('test')
   @ReadThrottle()
   @ApiBearerAuth('JWT-auth')
@@ -152,6 +176,27 @@ export class NotesController {
     description: 'Comma-separated list of tags to filter by',
     example: 'work,important'
   })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Search query for title and content',
+    example: 'meeting notes'
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    type: String,
+    description: 'Sort field (createdAt, updatedAt, title)',
+    example: 'createdAt'
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    type: String,
+    description: 'Sort order (ASC, DESC)',
+    example: 'DESC'
+  })
   @ApiResponse({
     status: 200,
     description: 'Notes retrieved successfully',
@@ -191,13 +236,16 @@ export class NotesController {
     @Request() req,
     @Pagination() paginationDto: PaginationDto,
     @Query('tags') tagsQuery?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
-    this.logger.debug(`findAll called with pagination: ${JSON.stringify(paginationDto)}, tags: ${tagsQuery}`);
+    this.logger.debug(`findAll called with pagination: ${JSON.stringify(paginationDto)}, tags: ${tagsQuery}, search: ${search}, sortBy: ${sortBy}, sortOrder: ${sortOrder}`);
     
     const tags = tagsQuery ? tagsQuery.split(',') : undefined;
     this.logger.debug(`Parsed tags: ${JSON.stringify(tags)}`);
     
-    return this.notesService.findAll(req.user.userId, paginationDto, tags);
+    return this.notesService.findAll(req.user.userId, paginationDto, tags, search, sortBy, sortOrder);
   }
 
   @Get(':id')
@@ -244,6 +292,52 @@ export class NotesController {
   })
   async findOne(@Param('id') id: string, @Request() req) {
     const note = await this.notesService.findOne(id, req.user.userId);
+    if (!note) {
+      throw new NotFoundException('Note not found');
+    }
+    return note;
+  }
+
+  @Put(':id')
+  @CrudThrottle()
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({ 
+    summary: 'Replace a note completely',
+    description: 'Replaces an existing note completely by ID. Only allows updating notes owned by the authenticated user.'
+  })
+  @ApiParam({
+    name: 'id',
+    type: 'string',
+    description: 'Note ID (UUID)',
+    example: 'f47ac10b-58cc-4372-a567-0e02b2c3d479'
+  })
+  @ApiBody({
+    type: CreateNoteDto,
+    description: 'Complete note data to replace existing note'
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Note replaced successfully'
+  })
+  @ApiNotFoundResponse({
+    description: 'Note not found or not owned by user'
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing JWT token'
+  })
+  @ApiBadRequestResponse({
+    description: 'Invalid input data'
+  })
+  @ApiResponse({
+    status: 429,
+    description: 'Too many requests - rate limit exceeded (20 requests per minute)'
+  })
+  async replace(
+    @Param('id') id: string,
+    @Body() createNoteDto: CreateNoteDto,
+    @Request() req,
+  ) {
+    const note = await this.notesService.replace(id, createNoteDto, req.user.userId);
     if (!note) {
       throw new NotFoundException('Note not found');
     }

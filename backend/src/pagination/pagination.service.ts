@@ -21,10 +21,7 @@ export class PaginationService {
       this.logger.debug(`Applied cursor filter: ${cursor}`);
     }
 
-    queryBuilder
-      .orderBy(`${alias}.createdAt`, 'DESC')
-      .addOrderBy(`${alias}.id`, 'DESC')
-      .limit(limit + 1);
+    queryBuilder.limit(limit + 1);
 
     const items = await queryBuilder.getMany();
     this.logger.debug(`Fetched ${items.length} items (limit + 1 = ${limit + 1})`);
@@ -36,7 +33,7 @@ export class PaginationService {
     }
 
     const nextCursor = hasMore && items.length > 0 ? items[items.length - 1].id : undefined;
- const prevCursor = cursor || undefined;
+    const prevCursor = cursor || undefined;
 
     this.logger.debug(`Returning: ${items.length} items, nextCursor: ${nextCursor}, prevCursor: ${prevCursor}`);
 

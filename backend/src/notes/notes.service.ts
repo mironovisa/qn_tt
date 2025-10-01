@@ -32,14 +32,40 @@ export class NotesService {
     return this.notesRepository.save(note);
   }
 
+  async getAllTags(userId: string): Promise<string[]> {
+    const cacheKey = `tags:${userId}`;
+    
+    const cached = await this.cacheManager.get<string[]>(cacheKey);
+    if (cached) {
+      return cached;
+    }
+
+    const result = await this.notesRepository
+      .createQueryBuilder('note')
+      .select('DISTINCT unnest(note.tags)', 'tag')
+      .where('note.userId = :userId', { userId })
+      .andWhere('note.tags IS NOT NULL')
+      .andWhere('array_length(note.tags, 1) > 0')
+      .orderBy('tag', 'ASC')
+      .getRawMany();
+
+    const tags = result.map(row => row.tag).filter(tag => tag);
+    
+    await this.cacheManager.set(cacheKey, tags, 300);
+    return tags;
+  }
+
   async findAll(
     userId: string, 
     paginationDto: PaginationDto, 
-    tags?: string[]
+    tags?: string[],
+    search?: string,
+    sortBy?: string,
+    sortOrder?: string
   ): Promise<PaginatedResult<Note>> {
-    this.logger.debug(`findAll called with userId: ${userId}, pagination: ${JSON.stringify(paginationDto)}, tags: ${JSON.stringify(tags)}`);
+    this.logger.debug(`findAll called with userId: ${userId}, pagination: ${JSON.stringify(paginationDto)}, tags: ${JSON.stringify(tags)}, search: ${search}, sortBy: ${sortBy}, sortOrder: ${sortOrder}`);
     
-    const cacheKey = `notes:${userId}:${tags ? tags.join(',') : 'all'}:${paginationDto.cursor || 'start'}:${paginationDto.limit}`;
+    const cacheKey = `notes:${userId}:${tags ? tags.join(',') : 'all'}:${search || 'nosearch'}:${sortBy || 'createdAt'}:${sortOrder || 'DESC'}:${paginationDto.cursor || 'start'}:${paginationDto.limit}`;
     this.logger.debug(`Cache key: ${cacheKey}`);
     
     const cached = await this.cacheManager.get<PaginatedResult<Note>>(cacheKey);
@@ -56,6 +82,22 @@ export class NotesService {
       query.andWhere('note.tags && ARRAY[:...tags]', { tags });
       this.logger.debug(`Added tags filter: ${JSON.stringify(tags)}`);
     }
+
+    if (search) {
+      query.andWhere(
+        '(note.title ILIKE :search OR note.content ILIKE :search)',
+        { search: `%${search}%` }
+      );
+      this.logger.debug(`Added search filter: ${search}`);
+    }
+
+    const validSortFields = ['createdAt', 'updatedAt', 'title'];
+    const sortField = validSortFields.includes(sortBy) ? sortBy : 'createdAt';
+    const order = sortOrder?.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    
+    query.orderBy(`note.${sortField}`, order);
+    query.addOrderBy('note.id', order);
+    this.logger.debug(`Added sorting: ${sortField} ${order}`);
 
     this.logger.debug('Calling pagination service...');
     const result = await this.paginationService.paginate(query, paginationDto, 'note');
@@ -80,6 +122,17 @@ export class NotesService {
     return this.notesRepository.save(note);
   }
 
+  async replace(id: string, createNoteDto: CreateNoteDto, userId: string): Promise<Note | null> {
+    const note = await this.findOne(id, userId);
+    if (!note) return null;
+
+    note.title = createNoteDto.title;
+    note.content = createNoteDto.content;
+    note.tags = createNoteDto.tags || [];
+    await this.clearUserCache(userId);
+    return this.notesRepository.save(note);
+  }
+
   async remove(id: string, userId: string): Promise<boolean> {
     const result = await this.notesRepository.delete({ id, userId });
     if (result.affected > 0) {
@@ -90,12 +143,17 @@ export class NotesService {
   }
 
   private async clearUserCache(userId: string): Promise<void> {    
-    const keysToDelete = [
-      `notes:${userId}:all:start:10`,
-      `notes:${userId}:all:start:20`,
-      `notes:${userId}:all:start:50`,
+    await this.cacheManager.del(`tags:${userId}`);
+    
+    const cacheKeys = [
+      `notes:${userId}:all:nosearch:createdAt:DESC:start:10`,
+      `notes:${userId}:all:nosearch:createdAt:ASC:start:10`,
+      `notes:${userId}:all:nosearch:updatedAt:DESC:start:10`,
+      `notes:${userId}:all:nosearch:updatedAt:ASC:start:10`,
+      `notes:${userId}:all:nosearch:title:DESC:start:10`,
+      `notes:${userId}:all:nosearch:title:ASC:start:10`,
     ];
     
-    await Promise.all(keysToDelete.map(key => this.cacheManager.del(key)));
+    await Promise.all(cacheKeys.map(key => this.cacheManager.del(key)));
   }
 }

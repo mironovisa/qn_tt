@@ -1,0 +1,57 @@
+version: '3.8'
+
+networks:
+  quicknotes-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - api
+    networks:
+      - quicknotes-network
+
+  api:
+    build: ./backend
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=postgresql://quicknotes_user:quicknotes_password@postgres:5432/quicknotes_db
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=your-super-secret-jwt-key-here
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - quicknotes-network
+
+  frontend:
+    build: ./frontend
+    networks:
+      - quicknotes-network
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=quicknotes_db
+      - POSTGRES_USER=quicknotes_user
+      - POSTGRES_PASSWORD=quicknotes_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - quicknotes-network
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - quicknotes-network

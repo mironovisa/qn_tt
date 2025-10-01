@@ -1,5 +1,3 @@
-version: '3.8'
-
 networks:
   quicknotes-network:
     driver: bridge
@@ -22,8 +20,6 @@ services:
 
   api:
     build: ./backend
-    ports:
-      - "8001:3000"
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://quicknotes_user:quicknotes_password@postgres:5432/quicknotes_db
@@ -37,8 +33,6 @@ services:
 
   frontend:
     build: ./frontend
-    ports:
-      - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules

@@ -30,5 +30,6 @@ scale-2: ## Scale API to 2 instances
 scale-5: ## Scale API to 5 instances
 	docker-compose up -d --scale api=5
 
+
 logs: ## Show logs
 	docker-compose logs -f
